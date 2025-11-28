@@ -6,6 +6,7 @@ from typing import Any
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -28,31 +29,48 @@ async def async_setup_entry(
     # Process the data and create sensors
     if coordinator.data:
         processed_data = await hass.async_add_executor_job(
-            _process_router_data, coordinator.data
+            _process_router_data, coordinator.data, entry
         )
         
         for sensor_id, sensor_data in processed_data.items():
             sensors.append(
                 VerizonRouterSensor(
                     coordinator,
+                    entry,
                     sensor_id,
                     sensor_data.get("name"),
                     sensor_data.get("unit"),
                     sensor_data.get("device_class"),
                     sensor_data.get("icon"),
+                    sensor_data.get("device_key"),
                 )
             )
     
     async_add_entities(sensors)
 
 
-def _process_router_data(data: dict[str, Any]) -> dict[str, dict]:
+def _get_device_info(device_key: str, device_name: str, model: str, entry: ConfigEntry) -> DeviceInfo:
+    """Create device info for a device."""
+    return DeviceInfo(
+        identifiers={(DOMAIN, f"{entry.entry_id}_{device_key}")},
+        name=device_name,
+        manufacturer="Verizon",
+        model=model,
+        via_device=(DOMAIN, entry.entry_id) if device_key != "router" else None,
+    )
+
+
+def _process_router_data(data: dict[str, Any], entry: ConfigEntry) -> dict[str, dict]:
     """Process router data into sensor definitions."""
     sensors = {}
     
     topology = data.get('topology', {})
     known_devices = data.get('known_devices', {})
     station_info = data.get('station_info', {})
+    
+    # Get router info for device identification
+    router_model = data.get('hardware_model', 'CR1000A')
+    router_name = data.get('router_name', 'Verizon Router')
     
     # Router basic info
     if data.get('router_name'):
@@ -61,7 +79,8 @@ def _process_router_data(data: dict[str, Any]) -> dict[str, dict]:
             "value": data['router_name'],
             "unit": None,
             "device_class": None,
-            "icon": "mdi:router-wireless"
+            "icon": "mdi:router-wireless",
+            "device_key": "router"
         }
     
     if data.get('hardware_model'):
@@ -70,7 +89,8 @@ def _process_router_data(data: dict[str, Any]) -> dict[str, dict]:
             "value": data['hardware_model'],
             "unit": None,
             "device_class": None,
-            "icon": "mdi:router-wireless"
+            "icon": "mdi:router-wireless",
+            "device_key": "router"
         }
     
     # Process topology
@@ -78,10 +98,10 @@ def _process_router_data(data: dict[str, Any]) -> dict[str, dict]:
         main_node = topology['nodes'][0]
         
         # Router metrics
-        _process_node_metrics(sensors, main_node, "router")
+        _process_node_metrics(sensors, main_node, "router", "router")
         
         # WiFi SSIDs
-        _process_ssids(sensors, main_node, "router")
+        _process_ssids(sensors, main_node, "router", "router")
         
         # Mesh extenders
         extender_count = len(topology['nodes']) - 1
@@ -90,7 +110,8 @@ def _process_router_data(data: dict[str, Any]) -> dict[str, dict]:
             "value": extender_count,
             "unit": "devices",
             "device_class": None,
-            "icon": "mdi:access-point-network"
+            "icon": "mdi:access-point-network",
+            "device_key": "router"
         }
         
         # Total devices
@@ -100,17 +121,19 @@ def _process_router_data(data: dict[str, Any]) -> dict[str, dict]:
             "value": total_devices,
             "unit": "devices",
             "device_class": None,
-            "icon": "mdi:devices"
+            "icon": "mdi:devices",
+            "device_key": "router"
         }
         
         # Process extenders
         for i, node in enumerate(topology['nodes'][1:], 1):
-            _process_node_metrics(sensors, node, f"extender_{i}")
-            _process_extender_connection(sensors, node, i)
+            device_key = f"extender_{i}"
+            _process_node_metrics(sensors, node, f"extender_{i}", device_key)
+            _process_extender_connection(sensors, node, i, device_key)
     
-    # Process known devices
+    # Process known devices - all under router
     if known_devices and 'known_devices' in known_devices:
-        _process_known_devices(sensors, known_devices['known_devices'])
+        _process_known_devices(sensors, known_devices['known_devices'], "router")
     
     # Process station info for detailed metrics
     if station_info and 'stations' in station_info and topology and 'nodes' in topology:
@@ -119,24 +142,26 @@ def _process_router_data(data: dict[str, Any]) -> dict[str, dict]:
     return sensors
 
 
-def _process_node_metrics(sensors: dict, node: dict, prefix: str) -> None:
+def _process_node_metrics(sensors: dict, node: dict, prefix: str, device_key: str) -> None:
     """Process metrics for a node (router or extender)."""
     # Uptime
     uptime_seconds = int(node.get('uptime', 0))
     sensors[f'{prefix}_uptime_hours'] = {
-        "name": f"{prefix.replace('_', ' ').title()} Uptime",
+        "name": "Uptime",
         "value": uptime_seconds // 3600,
         "unit": "h",
-        "device_class": None,
-        "icon": "mdi:clock-outline"
+        "device_class": "duration",
+        "icon": "mdi:clock-outline",
+        "device_key": device_key
     }
     
     sensors[f'{prefix}_uptime_days'] = {
-        "name": f"{prefix.replace('_', ' ').title()} Uptime Days",
+        "name": "Uptime Days",
         "value": round(uptime_seconds / 86400, 1),
         "unit": "d",
-        "device_class": None,
-        "icon": "mdi:calendar-clock"
+        "device_class": "duration",
+        "icon": "mdi:calendar-clock",
+        "device_key": device_key
     }
     
     # CPU metrics
@@ -145,44 +170,49 @@ def _process_node_metrics(sensors: dict, node: dict, prefix: str) -> None:
     cpu_idle = int(node.get('cpuI', 0))
     
     sensors[f'{prefix}_cpu_usage'] = {
-        "name": f"{prefix.replace('_', ' ').title()} CPU Usage",
+        "name": "CPU Usage",
         "value": cpu_user + cpu_system,
         "unit": "%",
         "device_class": None,
-        "icon": "mdi:chip"
+        "icon": "mdi:chip",
+        "device_key": device_key
     }
     
     sensors[f'{prefix}_cpu_user'] = {
-        "name": f"{prefix.replace('_', ' ').title()} CPU User",
+        "name": "CPU User",
         "value": cpu_user,
         "unit": "%",
         "device_class": None,
-        "icon": "mdi:chip"
+        "icon": "mdi:chip",
+        "device_key": device_key
     }
     
     sensors[f'{prefix}_cpu_system'] = {
-        "name": f"{prefix.replace('_', ' ').title()} CPU System",
+        "name": "CPU System",
         "value": cpu_system,
         "unit": "%",
         "device_class": None,
-        "icon": "mdi:chip"
+        "icon": "mdi:chip",
+        "device_key": device_key
     }
     
     sensors[f'{prefix}_cpu_idle'] = {
-        "name": f"{prefix.replace('_', ' ').title()} CPU Idle",
+        "name": "CPU Idle",
         "value": cpu_idle,
         "unit": "%",
         "device_class": None,
-        "icon": "mdi:chip"
+        "icon": "mdi:chip",
+        "device_key": device_key
     }
     
     # Temperature
     sensors[f'{prefix}_temperature'] = {
-        "name": f"{prefix.replace('_', ' ').title()} Temperature",
+        "name": "Temperature",
         "value": int(node.get('cpuT', 0)),
         "unit": "°C",
         "device_class": "temperature",
-        "icon": "mdi:thermometer"
+        "icon": "mdi:thermometer",
+        "device_key": device_key
     }
     
     # Memory
@@ -192,129 +222,141 @@ def _process_node_metrics(sensors: dict, node: dict, prefix: str) -> None:
     
     if mem_total > 0:
         sensors[f'{prefix}_memory_usage_pct'] = {
-            "name": f"{prefix.replace('_', ' ').title()} Memory Usage",
+            "name": "Memory Usage",
             "value": round((mem_used / mem_total * 100), 1),
             "unit": "%",
             "device_class": None,
-            "icon": "mdi:memory"
+            "icon": "mdi:memory",
+            "device_key": device_key
         }
     
     sensors[f'{prefix}_memory_used_mb'] = {
-        "name": f"{prefix.replace('_', ' ').title()} Memory Used",
+        "name": "Memory Used",
         "value": round(mem_used / 1024, 1),
         "unit": "MB",
-        "device_class": None,
-        "icon": "mdi:memory"
+        "device_class": "data_size",
+        "icon": "mdi:memory",
+        "device_key": device_key
     }
     
     sensors[f'{prefix}_memory_free_mb'] = {
-        "name": f"{prefix.replace('_', ' ').title()} Memory Free",
+        "name": "Memory Free",
         "value": round(mem_free / 1024, 1),
         "unit": "MB",
-        "device_class": None,
-        "icon": "mdi:memory"
+        "device_class": "data_size",
+        "icon": "mdi:memory",
+        "device_key": device_key
     }
     
     sensors[f'{prefix}_memory_total_mb'] = {
-        "name": f"{prefix.replace('_', ' ').title()} Memory Total",
+        "name": "Memory Total",
         "value": round(mem_total / 1024, 1),
         "unit": "MB",
-        "device_class": None,
-        "icon": "mdi:memory"
+        "device_class": "data_size",
+        "icon": "mdi:memory",
+        "device_key": device_key
     }
     
     # Connected devices
     sensors[f'{prefix}_connected_devices'] = {
-        "name": f"{prefix.replace('_', ' ').title()} Connected Devices",
+        "name": "Connected Devices",
         "value": int(node.get('sta_num', 0)),
         "unit": "devices",
         "device_class": None,
-        "icon": "mdi:devices"
+        "icon": "mdi:devices",
+        "device_key": device_key
     }
     
     # Firmware
     if node.get('sw_ver'):
         sensors[f'{prefix}_firmware'] = {
-            "name": f"{prefix.replace('_', ' ').title()} Firmware",
+            "name": "Firmware",
             "value": node['sw_ver'],
             "unit": None,
             "device_class": None,
-            "icon": "mdi:chip"
+            "icon": "mdi:chip",
+            "device_key": device_key
         }
 
 
-def _process_ssids(sensors: dict, node: dict, prefix: str) -> None:
+def _process_ssids(sensors: dict, node: dict, prefix: str, device_key: str) -> None:
     """Process SSID information."""
     ssid_map = {
-        'wifi_2g_ssid': ('essid_2g', '2.4GHz Main'),
-        'wifi_2g_guest_ssid': ('essid_2g_gst', '2.4GHz Guest'),
-        'wifi_2g_iot_ssid': ('essid_2g_iot', '2.4GHz IoT'),
-        'wifi_5g_ssid': ('essid_5g', '5GHz Main'),
-        'wifi_5g_iptv_ssid': ('essid_5g_iptv', '5GHz IPTV'),
-        'wifi_5g_backhaul_ssid': ('essid_5g_bh', '5GHz Backhaul'),
-        'wifi_6g_ssid': ('essid_6g', '6GHz Main'),
-        'wifi_6g_backhaul_ssid': ('essid_6g_bh', '6GHz Backhaul'),
+        'wifi_2g_ssid': ('essid_2g', '2.4GHz Main SSID'),
+        'wifi_2g_guest_ssid': ('essid_2g_gst', '2.4GHz Guest SSID'),
+        'wifi_2g_iot_ssid': ('essid_2g_iot', '2.4GHz IoT SSID'),
+        'wifi_5g_ssid': ('essid_5g', '5GHz Main SSID'),
+        'wifi_5g_iptv_ssid': ('essid_5g_iptv', '5GHz IPTV SSID'),
+        'wifi_5g_backhaul_ssid': ('essid_5g_bh', '5GHz Backhaul SSID'),
+        'wifi_6g_ssid': ('essid_6g', '6GHz Main SSID'),
+        'wifi_6g_backhaul_ssid': ('essid_6g_bh', '6GHz Backhaul SSID'),
     }
     
     for sensor_key, (node_key, display_name) in ssid_map.items():
         if node.get(node_key):
             sensors[f'{prefix}_{sensor_key}'] = {
-                "name": f"{prefix.replace('_', ' ').title()} {display_name} SSID",
+                "name": display_name,
                 "value": node[node_key],
                 "unit": None,
                 "device_class": None,
-                "icon": "mdi:wifi"
+                "icon": "mdi:wifi",
+                "device_key": device_key
             }
 
 
-def _process_extender_connection(sensors: dict, node: dict, index: int) -> None:
+def _process_extender_connection(sensors: dict, node: dict, index: int, device_key: str) -> None:
     """Process extender connection details."""
     prefix = f"extender_{index}"
     
     if node.get('device_name'):
         sensors[f'{prefix}_name'] = {
-            "name": f"Extender {index} Name",
+            "name": "Name",
             "value": node['device_name'],
             "unit": None,
             "device_class": None,
-            "icon": "mdi:access-point-network"
+            "icon": "mdi:access-point-network",
+            "device_key": device_key
         }
     
     if node.get('model_name'):
         sensors[f'{prefix}_model'] = {
-            "name": f"Extender {index} Model",
+            "name": "Model",
             "value": node['model_name'],
             "unit": None,
             "device_class": None,
-            "icon": "mdi:access-point-network"
+            "icon": "mdi:access-point-network",
+            "device_key": device_key
         }
     
     sensors[f'{prefix}_signal'] = {
-        "name": f"Extender {index} Signal",
+        "name": "Signal Strength",
         "value": node.get('connect_rssi', '0'),
         "unit": "dBm",
         "device_class": "signal_strength",
-        "icon": "mdi:wifi-strength-3"
+        "icon": "mdi:wifi-strength-3",
+        "device_key": device_key
     }
     
     sensors[f'{prefix}_connection_type'] = {
-        "name": f"Extender {index} Connection Type",
+        "name": "Connection Type",
         "value": node.get('connect_type', 'Unknown'),
         "unit": None,
         "device_class": None,
-        "icon": "mdi:connection"
+        "icon": "mdi:connection",
+        "device_key": device_key
     }
     
     sensors[f'{prefix}_link_rate'] = {
-        "name": f"Extender {index} Link Rate",
+        "name": "Link Rate",
         "value": node.get('linkrate', '0'),
         "unit": "Mbps",
-        "device_class": None,
-        "icon": "mdi:speedometer"
+        "device_class": "data_rate",
+        "icon": "mdi:speedometer",
+        "device_key": device_key
     }
 
 
-def _process_known_devices(sensors: dict, devices: list) -> None:
+def _process_known_devices(sensors: dict, devices: list, device_key: str) -> None:
     """Process known devices for statistics."""
     total_known = len(devices)
     active_devices = 0
@@ -347,7 +389,8 @@ def _process_known_devices(sensors: dict, devices: list) -> None:
         "value": total_known,
         "unit": "devices",
         "device_class": None,
-        "icon": "mdi:database"
+        "icon": "mdi:database",
+        "device_key": device_key
     }
     
     sensors['router_active_devices'] = {
@@ -355,7 +398,8 @@ def _process_known_devices(sensors: dict, devices: list) -> None:
         "value": active_devices,
         "unit": "devices",
         "device_class": None,
-        "icon": "mdi:check-network"
+        "icon": "mdi:check-network",
+        "device_key": device_key
     }
     
     sensors['router_inactive_devices'] = {
@@ -363,7 +407,8 @@ def _process_known_devices(sensors: dict, devices: list) -> None:
         "value": total_known - active_devices,
         "unit": "devices",
         "device_class": None,
-        "icon": "mdi:network-off"
+        "icon": "mdi:network-off",
+        "device_key": device_key
     }
     
     # Device types
@@ -375,7 +420,8 @@ def _process_known_devices(sensors: dict, devices: list) -> None:
                 "value": count,
                 "unit": "devices",
                 "device_class": None,
-                "icon": "mdi:devices"
+                "icon": "mdi:devices",
+                "device_key": device_key
             }
     
     # Vendors (only 2+)
@@ -388,7 +434,8 @@ def _process_known_devices(sensors: dict, devices: list) -> None:
                     "value": count,
                     "unit": "devices",
                     "device_class": None,
-                    "icon": "mdi:factory"
+                    "icon": "mdi:factory",
+                    "device_key": device_key
                 }
     
     # OS
@@ -400,7 +447,8 @@ def _process_known_devices(sensors: dict, devices: list) -> None:
                 "value": count,
                 "unit": "devices",
                 "device_class": None,
-                "icon": "mdi:devices"
+                "icon": "mdi:devices",
+                "device_key": device_key
             }
 
 
@@ -512,15 +560,15 @@ def _process_station_info(sensors: dict, stations: list, nodes: list) -> None:
                 wifi_standards['wifi_6'] += 1
     
     # Create router band sensors
-    _create_band_sensors(sensors, router_bands, 'router')
+    _create_band_sensors(sensors, router_bands, 'router', 'router')
     
     # Create extender band sensors
     for i, node in enumerate(nodes[1:], 1):
         extender_mac = node.get('device_mac', '')
         if extender_mac in extender_bands:
-            _create_band_sensors(sensors, extender_bands[extender_mac], f'extender_{i}')
+            _create_band_sensors(sensors, extender_bands[extender_mac], f'extender_{i}', f'extender_{i}')
     
-    # Create quality metric sensors
+    # Create quality metric sensors - all under router device
     for band_name, metrics in band_metrics.items():
         if metrics['signals']:
             avg_signal = sum(metrics['signals']) / len(metrics['signals'])
@@ -529,7 +577,8 @@ def _process_station_info(sensors: dict, stations: list, nodes: list) -> None:
                 "value": round(avg_signal, 1),
                 "unit": "dBm",
                 "device_class": "signal_strength",
-                "icon": "mdi:wifi"
+                "icon": "mdi:wifi",
+                "device_key": "router"
             }
             
             sensors[f'router_{band_name}_min_signal'] = {
@@ -537,7 +586,8 @@ def _process_station_info(sensors: dict, stations: list, nodes: list) -> None:
                 "value": min(metrics['signals']),
                 "unit": "dBm",
                 "device_class": "signal_strength",
-                "icon": "mdi:wifi-strength-1"
+                "icon": "mdi:wifi-strength-1",
+                "device_key": "router"
             }
             
             sensors[f'router_{band_name}_max_signal'] = {
@@ -545,7 +595,8 @@ def _process_station_info(sensors: dict, stations: list, nodes: list) -> None:
                 "value": max(metrics['signals']),
                 "unit": "dBm",
                 "device_class": "signal_strength",
-                "icon": "mdi:wifi-strength-4"
+                "icon": "mdi:wifi-strength-4",
+                "device_key": "router"
             }
         
         if metrics['snr']:
@@ -555,7 +606,8 @@ def _process_station_info(sensors: dict, stations: list, nodes: list) -> None:
                 "value": round(avg_snr, 1),
                 "unit": "dB",
                 "device_class": None,
-                "icon": "mdi:signal"
+                "icon": "mdi:signal",
+                "device_key": "router"
             }
         
         if metrics['retries']:
@@ -564,7 +616,8 @@ def _process_station_info(sensors: dict, stations: list, nodes: list) -> None:
                 "value": sum(metrics['retries']),
                 "unit": "count",
                 "device_class": None,
-                "icon": "mdi:refresh"
+                "icon": "mdi:refresh",
+                "device_key": "router"
             }
         
         if metrics['errors']:
@@ -573,7 +626,8 @@ def _process_station_info(sensors: dict, stations: list, nodes: list) -> None:
                 "value": sum(metrics['errors']),
                 "unit": "count",
                 "device_class": None,
-                "icon": "mdi:alert-circle"
+                "icon": "mdi:alert-circle",
+                "device_key": "router"
             }
         
         if metrics['rates']:
@@ -582,22 +636,24 @@ def _process_station_info(sensors: dict, stations: list, nodes: list) -> None:
                 "name": f"{band_name.upper()} Avg Link Rate",
                 "value": round(avg_rate, 0),
                 "unit": "Mbps",
-                "device_class": None,
-                "icon": "mdi:speedometer"
+                "device_class": "data_rate",
+                "icon": "mdi:speedometer",
+                "device_key": "router"
             }
     
-    # WiFi standard sensors
+    # WiFi standard sensors - under router
     for standard, count in wifi_standards.items():
         sensors[f'router_devices_{standard}'] = {
             "name": f"Devices: {standard.replace('_', ' ').title()}",
             "value": count,
             "unit": "devices",
             "device_class": None,
-            "icon": "mdi:wifi"
+            "icon": "mdi:wifi",
+            "device_key": "router"
         }
 
 
-def _create_band_sensors(sensors: dict, bands: dict, prefix: str) -> None:
+def _create_band_sensors(sensors: dict, bands: dict, prefix: str, device_key: str) -> None:
     """Create per-band device count sensors."""
     band_mapping = {
         '2g': ('2.4G Main', 'mdi:wifi'),
@@ -613,36 +669,40 @@ def _create_band_sensors(sensors: dict, bands: dict, prefix: str) -> None:
     
     for band_key, (band_name, icon) in band_mapping.items():
         sensors[f'{prefix}_devices_{band_key}'] = {
-            "name": f"{prefix.replace('_', ' ').title()} {band_name}",
+            "name": f"{band_name} Devices",
             "value": bands[band_key],
             "unit": "devices",
             "device_class": None,
-            "icon": icon
+            "icon": icon,
+            "device_key": device_key
         }
     
     # Aggregate sensors
     sensors[f'{prefix}_devices_2g'] = {
-        "name": f"{prefix.replace('_', ' ').title()} 2.4G Total",
+        "name": "2.4G Total Devices",
         "value": bands['2g'] + bands['2g_iot'] + bands['2g_guest'],
         "unit": "devices",
         "device_class": None,
-        "icon": "mdi:wifi"
+        "icon": "mdi:wifi",
+        "device_key": device_key
     }
     
     sensors[f'{prefix}_devices_5g'] = {
-        "name": f"{prefix.replace('_', ' ').title()} 5G Total",
+        "name": "5G Total Devices",
         "value": bands['5g'] + bands['5g_iptv'],
         "unit": "devices",
         "device_class": None,
-        "icon": "mdi:wifi"
+        "icon": "mdi:wifi",
+        "device_key": device_key
     }
     
     sensors[f'{prefix}_devices_6g'] = {
-        "name": f"{prefix.replace('_', ' ').title()} 6G Total",
+        "name": "6G Total Devices",
         "value": bands['6g'],
         "unit": "devices",
         "device_class": None,
-        "icon": "mdi:wifi-star"
+        "icon": "mdi:wifi-star",
+        "device_key": device_key
     }
 
 
@@ -663,24 +723,68 @@ class VerizonRouterSensor(CoordinatorEntity, SensorEntity):
     def __init__(
         self,
         coordinator: VerizonRouterCoordinator,
+        entry: ConfigEntry,
         sensor_id: str,
         name: str,
         unit: str | None,
         device_class: str | None,
         icon: str | None,
+        device_key: str,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
+        self._entry = entry
         self._sensor_id = sensor_id
+        self._device_key = device_key
         self._attr_name = name
-        self._attr_unique_id = f"verizon_fios_{sensor_id}"
+        self._attr_unique_id = f"verizon_fios_{entry.entry_id}_{sensor_id}"
         self._attr_native_unit_of_measurement = unit
         self._attr_device_class = device_class
         self._attr_icon = icon
 
     @property
+    def device_info(self) -> DeviceInfo:
+        """Return device info for this sensor."""
+        # Get device info from coordinator data
+        topology = self.coordinator.data.get('topology', {})
+        router_model = self.coordinator.data.get('hardware_model', 'CR1000A')
+        router_name = self.coordinator.data.get('router_name', 'Verizon Router')
+        
+        if self._device_key == "router":
+            return DeviceInfo(
+                identifiers={(DOMAIN, self._entry.entry_id)},
+                name=router_name,
+                manufacturer="Verizon",
+                model=router_model,
+                sw_version=topology.get('nodes', [{}])[0].get('sw_ver') if topology and 'nodes' in topology else None,
+            )
+        else:
+            # Extender device
+            if topology and 'nodes' in topology:
+                extender_index = int(self._device_key.split('_')[1])
+                if len(topology['nodes']) > extender_index:
+                    node = topology['nodes'][extender_index]
+                    return DeviceInfo(
+                        identifiers={(DOMAIN, f"{self._entry.entry_id}_{self._device_key}")},
+                        name=node.get('device_name', f'Extender {extender_index}'),
+                        manufacturer="Verizon",
+                        model=node.get('model_name', 'CE1000A'),
+                        sw_version=node.get('sw_ver'),
+                        via_device=(DOMAIN, self._entry.entry_id),
+                    )
+            
+            # Fallback
+            return DeviceInfo(
+                identifiers={(DOMAIN, f"{self._entry.entry_id}_{self._device_key}")},
+                name=f"Extender {self._device_key.split('_')[1]}",
+                manufacturer="Verizon",
+                model="CE1000A",
+                via_device=(DOMAIN, self._entry.entry_id),
+            )
+
+    @property
     def native_value(self):
         """Return the state of the sensor."""
-        processed_data = _process_router_data(self.coordinator.data)
+        processed_data = _process_router_data(self.coordinator.data, self._entry)
         sensor_data = processed_data.get(self._sensor_id, {})
         return sensor_data.get("value")
