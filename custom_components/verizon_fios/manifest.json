@@ -1,0 +1,12 @@
+{
+  "domain": "verizon_fios",
+  "name": "Verizon FiOS Router",
+  "documentation": "https://github.com/yourusername/verizon_fios_router",
+  "issue_tracker": "https://github.com/yourusername/verizon_fios_router/issues",
+  "codeowners": ["@yourusername"],
+  "config_flow": true,
+  "dependencies": [],
+  "requirements": [],
+  "version": "1.0.0",
+  "iot_class": "local_polling"
+}
