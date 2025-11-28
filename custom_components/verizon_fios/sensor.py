@@ -411,45 +411,38 @@ def _process_known_devices(sensors: dict, devices: list, device_key: str) -> Non
         "device_key": device_key
     }
     
-    # Device types
-    for dev_type, count in device_types.items():
-        safe_type = _sanitize_name(dev_type)
-        if safe_type:
-            sensors[f'router_devices_type_{safe_type}'] = {
-                "name": f"Devices: {dev_type}",
-                "value": count,
-                "unit": "devices",
-                "device_class": None,
-                "icon": "mdi:devices",
-                "device_key": device_key
-            }
+    # Device breakdown by type (as attributes)
+    sensors['router_device_types'] = {
+        "name": "Device Types",
+        "value": len(device_types),
+        "unit": "types",
+        "device_class": None,
+        "icon": "mdi:devices",
+        "device_key": device_key,
+        "attributes": device_types
+    }
     
-    # Vendors (only 2+)
-    for vendor, count in device_vendors.items():
-        if count >= 2:
-            safe_vendor = _sanitize_name(vendor)[:30]
-            if safe_vendor:
-                sensors[f'router_devices_vendor_{safe_vendor}'] = {
-                    "name": f"Vendor: {vendor}",
-                    "value": count,
-                    "unit": "devices",
-                    "device_class": None,
-                    "icon": "mdi:factory",
-                    "device_key": device_key
-                }
+    # Device breakdown by vendor (as attributes)
+    sensors['router_device_vendors'] = {
+        "name": "Device Vendors",
+        "value": len(device_vendors),
+        "unit": "vendors",
+        "device_class": None,
+        "icon": "mdi:factory",
+        "device_key": device_key,
+        "attributes": device_vendors
+    }
     
-    # OS
-    for os_name, count in devices_by_os.items():
-        safe_os = _sanitize_name(os_name)[:20]
-        if safe_os:
-            sensors[f'router_devices_os_{safe_os}'] = {
-                "name": f"OS: {os_name}",
-                "value": count,
-                "unit": "devices",
-                "device_class": None,
-                "icon": "mdi:devices",
-                "device_key": device_key
-            }
+    # Device breakdown by OS (as attributes)
+    sensors['router_device_os'] = {
+        "name": "Device Operating Systems",
+        "value": len(devices_by_os),
+        "unit": "OSes",
+        "device_class": None,
+        "icon": "mdi:devices",
+        "device_key": device_key,
+        "attributes": devices_by_os
+    }
 
 
 def _process_station_info(sensors: dict, stations: list, nodes: list) -> None:
@@ -788,3 +781,10 @@ class VerizonRouterSensor(CoordinatorEntity, SensorEntity):
         processed_data = _process_router_data(self.coordinator.data, self._entry)
         sensor_data = processed_data.get(self._sensor_id, {})
         return sensor_data.get("value")
+    
+    @property
+    def extra_state_attributes(self):
+        """Return extra state attributes."""
+        processed_data = _process_router_data(self.coordinator.data, self._entry)
+        sensor_data = processed_data.get(self._sensor_id, {})
+        return sensor_data.get("attributes")
