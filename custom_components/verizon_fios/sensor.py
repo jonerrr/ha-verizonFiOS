@@ -1,4 +1,4 @@
-"""Sensor platform for Verizon FiOS Router and Extender(s)."""
+"""Sensor platform for Verizon FiOS Router."""
 import logging
 import re
 from typing import Any

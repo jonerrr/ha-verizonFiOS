@@ -1,4 +1,5 @@
 """Verizon Router API handler."""
+import asyncio
 import hashlib
 import json
 import logging
@@ -103,11 +104,22 @@ class VerizonRouterAPI:
         try:
             async with self._session.get(
                 f"{self.router_url}/loginStatus.cgi",
-                ssl=ssl._create_unverified_context()
+                ssl=ssl._create_unverified_context(),
+                timeout=aiohttp.ClientTimeout(total=10)
             ) as response:
+                _LOGGER.debug("Token request status: %s", response.status)
                 if response.status == 200:
                     data = await response.json()
-                    return data.get('loginToken')
+                    token = data.get('loginToken')
+                    if token:
+                        _LOGGER.debug("Successfully retrieved login token")
+                    else:
+                        _LOGGER.error("No loginToken in response: %s", data)
+                    return token
+                else:
+                    _LOGGER.error("Bad status getting token: %s", response.status)
+                    text = await response.text()
+                    _LOGGER.debug("Response body: %s", text[:200])
         except Exception as e:
             _LOGGER.error("Error getting login token: %s", e)
         return None
@@ -117,6 +129,10 @@ class VerizonRouterAPI:
         try:
             username_hash = self._hash_username(self.username)
             password_hash = self._login_encode(self.password, token)
+            
+            _LOGGER.debug("Login attempt with username: %s", self.username)
+            _LOGGER.debug("Username hash: %s...", username_hash[:20])
+            _LOGGER.debug("Password hash: %s...", password_hash[:20])
             
             login_data = {
                 "luci_username": username_hash,
@@ -138,36 +154,84 @@ class VerizonRouterAPI:
                 data=login_data,
                 headers=headers,
                 ssl=ssl._create_unverified_context(),
-                allow_redirects=False
+                allow_redirects=False,
+                timeout=aiohttp.ClientTimeout(total=10)
             ) as response:
+                _LOGGER.debug("Login response status: %s", response.status)
+                _LOGGER.debug("Login response headers: %s", dict(response.headers))
+                
                 if response.status == 302:
+                    _LOGGER.debug("Got 302 redirect (expected)")
+                    
                     cookies = self._session.cookie_jar.filter_cookies(self.router_url)
+                    _LOGGER.debug("Cookies in jar: %s", len(cookies))
+                    
                     for cookie in cookies.values():
+                        _LOGGER.debug("Cookie: %s = %s", cookie.key, cookie.value[:20] if cookie.value else "empty")
                         if cookie.key == 'sysauth' and cookie.value:
+                            _LOGGER.info("Login successful - got sysauth cookie")
                             return True
                     
                     # Try extracting from Set-Cookie header
                     if 'Set-Cookie' in response.headers:
                         set_cookie = response.headers.get('Set-Cookie', '')
+                        _LOGGER.debug("Set-Cookie header present: %s...", set_cookie[:50])
                         if 'sysauth=' in set_cookie:
                             match = re.search(r'sysauth=([^;]+)', set_cookie)
                             if match and match.group(1):
+                                _LOGGER.info("Login successful - found sysauth in header")
                                 return True
+                    
+                    _LOGGER.error("Login failed - no sysauth cookie found")
+                else:
+                    _LOGGER.error("Login failed - unexpected status: %s", response.status)
+                    text = await response.text()
+                    _LOGGER.debug("Response body: %s", text[:200])
+                    
         except Exception as e:
-            _LOGGER.error("Login error: %s", e)
+            _LOGGER.error("Login error: %s", e, exc_info=True)
         return False
 
     async def test_connection(self) -> bool:
         """Test if we can connect to the router."""
+        _LOGGER.debug("Starting connection test to %s", self.router_url)
+        
         connector = aiohttp.TCPConnector(ssl=ssl._create_unverified_context())
         cookie_jar = aiohttp.CookieJar(unsafe=True)
+        timeout = aiohttp.ClientTimeout(total=30)
         
-        async with aiohttp.ClientSession(connector=connector, cookie_jar=cookie_jar) as session:
-            self._session = session
-            token = await self._get_login_token()
-            if not token:
-                return False
-            return await self._login(token)
+        try:
+            async with aiohttp.ClientSession(
+                connector=connector, 
+                cookie_jar=cookie_jar,
+                timeout=timeout
+            ) as session:
+                self._session = session
+                
+                _LOGGER.debug("Getting login token...")
+                token = await self._get_login_token()
+                if not token:
+                    _LOGGER.error("Failed to get login token from router")
+                    return False
+                
+                _LOGGER.debug("Got token: %s..., attempting login...", token[:10])
+                login_result = await self._login(token)
+                
+                if login_result:
+                    _LOGGER.info("Login successful")
+                else:
+                    _LOGGER.error("Login failed - check username and password")
+                
+                return login_result
+        except aiohttp.ClientError as e:
+            _LOGGER.error("Connection error: %s", e)
+            return False
+        except asyncio.TimeoutError:
+            _LOGGER.error("Connection timeout - router not responding")
+            return False
+        except Exception as e:
+            _LOGGER.error("Connection test failed with exception: %s", e, exc_info=True)
+            return False
 
     async def fetch_router_data(self) -> dict[str, Any]:
         """Fetch all router data."""
