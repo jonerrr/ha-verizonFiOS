@@ -8,8 +8,9 @@ assignees: ''
 
 **Environment:**
 - Home Assistant Version:
-- Pyscript Version:
 - Integration Version:
+- Router Model: (CR1000A, CE1000A, etc.)
+- Number of Extenders:
 
 **Describe the Bug:**
 A clear description of what the bug is.
@@ -26,10 +27,12 @@ What you expected to happen.
 What actually happened.
 
 **Logs:**
-[Paste relevant logs here]
+```
+[Paste relevant logs here - enable debug logging first]
+```
 
 **Screenshots:**
 If applicable, add screenshots.
 
 **Additional Context:**
-Any other information.
+Any other information that might help diagnose the issue.
