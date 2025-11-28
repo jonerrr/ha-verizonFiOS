@@ -231,10 +231,13 @@ Contributions are welcome! Please:
 3. Make your changes
 4. Submit a pull request
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+
 ## Support
 
-- 🐛 [Report Issues](https://github.com/yourusername/verizon_fios_router/issues)
-- 💬 [Discussions](https://github.com/yourusername/verizon_fios_router/discussions)
+- 🐛 [Report Issues](https://github.com/skircr115/ha-verizonFiOS/issues)
+- 💬 [Discussions](https://github.com/skircr115/ha-verizonFiOS/discussions)
+- 📖 [Documentation](README.md)
 
 ## License
 
