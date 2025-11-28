@@ -1,4 +1,4 @@
-"""Sensor platform for Verizon FiOS Router and Extender(s)."""
+"""Sensor platform for Verizon FiOS Router."""
 import logging
 import re
 from typing import Any
@@ -328,9 +328,21 @@ def _process_extender_connection(sensors: dict, node: dict, index: int, device_k
             "device_key": device_key
         }
     
+    # Parse signal strength - ensure it's numeric
+    signal_raw = node.get('connect_rssi', '0')
+    if isinstance(signal_raw, str):
+        # Strip any units like 'dBm' if present
+        signal_value = signal_raw.replace('dBm', '').replace('dbm', '').strip()
+        try:
+            signal_value = int(signal_value)
+        except ValueError:
+            signal_value = 0
+    else:
+        signal_value = signal_raw
+    
     sensors[f'{prefix}_signal'] = {
         "name": "Signal Strength",
-        "value": node.get('connect_rssi', '0'),
+        "value": signal_value,
         "unit": "dBm",
         "device_class": "signal_strength",
         "icon": "mdi:wifi-strength-3",
@@ -346,10 +358,21 @@ def _process_extender_connection(sensors: dict, node: dict, index: int, device_k
         "device_key": device_key
     }
     
+    # Parse link rate - strip 'Mbps' suffix if present
+    link_rate_raw = node.get('linkrate', '0')
+    if isinstance(link_rate_raw, str):
+        link_rate_value = link_rate_raw.replace('Mbps', '').replace('mbps', '').strip()
+        try:
+            link_rate_value = int(link_rate_value)
+        except ValueError:
+            link_rate_value = 0
+    else:
+        link_rate_value = link_rate_raw
+    
     sensors[f'{prefix}_link_rate'] = {
         "name": "Link Rate",
-        "value": node.get('linkrate', '0'),
-        "unit": "Mbps",
+        "value": link_rate_value,
+        "unit": "Mbit/s",
         "device_class": "data_rate",
         "icon": "mdi:speedometer",
         "device_key": device_key
@@ -628,7 +651,7 @@ def _process_station_info(sensors: dict, stations: list, nodes: list) -> None:
             sensors[f'router_{band_name}_avg_link_rate'] = {
                 "name": f"{band_name.upper()} Avg Link Rate",
                 "value": round(avg_rate, 0),
-                "unit": "Mbps",
+                "unit": "Mbit/s",
                 "device_class": "data_rate",
                 "icon": "mdi:speedometer",
                 "device_key": "router"

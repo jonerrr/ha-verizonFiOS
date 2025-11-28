@@ -34,19 +34,26 @@ class VerizonFiOSConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
             
             try:
+                _LOGGER.debug(
+                    "Testing connection to %s with username %s",
+                    user_input[CONF_ROUTER_URL],
+                    user_input[CONF_USERNAME],
+                )
                 if await api.test_connection():
                     # Create the entry
                     await self.async_set_unique_id(user_input[CONF_ROUTER_URL])
                     self._abort_if_unique_id_configured()
                     
+                    _LOGGER.info("Successfully connected to router")
                     return self.async_create_entry(
                         title="Verizon FiOS Router",
                         data=user_input,
                     )
                 else:
+                    _LOGGER.warning("Connection test failed - check credentials")
                     errors["base"] = "cannot_connect"
             except Exception as err:
-                _LOGGER.exception("Unexpected exception: %s", err)
+                _LOGGER.exception("Unexpected exception during connection test: %s", err)
                 errors["base"] = "unknown"
 
         # Show the form
