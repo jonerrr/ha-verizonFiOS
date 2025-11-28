@@ -372,7 +372,7 @@ def _process_extender_connection(sensors: dict, node: dict, index: int, device_k
     sensors[f'{prefix}_link_rate'] = {
         "name": "Link Rate",
         "value": link_rate_value,
-        "unit": "Mbps",
+        "unit": "Mbit/s",
         "device_class": "data_rate",
         "icon": "mdi:speedometer",
         "device_key": device_key
@@ -651,7 +651,7 @@ def _process_station_info(sensors: dict, stations: list, nodes: list) -> None:
             sensors[f'router_{band_name}_avg_link_rate'] = {
                 "name": f"{band_name.upper()} Avg Link Rate",
                 "value": round(avg_rate, 0),
-                "unit": "Mbps",
+                "unit": "Mbit/s",
                 "device_class": "data_rate",
                 "icon": "mdi:speedometer",
                 "device_key": "router"
