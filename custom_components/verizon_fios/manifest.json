@@ -1,9 +1,9 @@
 {
   "domain": "verizon_fios",
   "name": "Verizon FiOS Router",
-  "documentation": "https://github.com/yourusername/verizon_fios_router",
-  "issue_tracker": "https://github.com/yourusername/verizon_fios_router/issues",
-  "codeowners": ["@yourusername"],
+  "documentation": "https://github.com/skircr115/ha-verizonFiOS",
+  "issue_tracker": "https://github.com/skircr115/ha-verizonFiOS/issues",
+  "codeowners": ["@skircr115"],
   "config_flow": true,
   "dependencies": [],
   "requirements": [],

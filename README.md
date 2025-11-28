@@ -1,10 +1,11 @@
 # Verizon FiOS Router Integration for Home Assistant
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
-[![GitHub Release](https://img.shields.io/github/release/skircr115/ha-verizonFiOS.svg)](https://github.com/skircr115/ha-verizonFiOS/releases)
-[![License](https://img.shields.io/github/license/skircr115/ha-verizonFiOS.svg)](LICENSE)
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
+[![GitHub Release](https://img.shields.io/github/v/release/skircr115/ha-verizonFiOS?include_prereleases)](https://github.com/skircr115/ha-verizonFiOS/releases)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/skircr115/ha-verizonFiOS/blob/main/LICENSE)
+[![Maintenance](https://img.shields.io/badge/Maintained-Yes-green.svg)](https://github.com/skircr115/ha-verizonFiOS/graphs/commit-activity)
 
-A comprehensive Home Assistant integration for Verizon FiOS CR1000A routers and CE1000A extenders.
+A comprehensive Home Assistant integration for Verizon FiOS CR1000A and CE1000A routers.
 
 ## Features
 
