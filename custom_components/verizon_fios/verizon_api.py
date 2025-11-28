@@ -109,7 +109,18 @@ class VerizonRouterAPI:
             ) as response:
                 _LOGGER.debug("Token request status: %s", response.status)
                 if response.status == 200:
-                    data = await response.json()
+                    # Router returns text/javascript instead of application/json
+                    # So we need to get text and parse it manually
+                    text = await response.text()
+                    _LOGGER.debug("Token response text: %s", text[:200])
+                    
+                    try:
+                        data = json.loads(text)
+                    except json.JSONDecodeError as e:
+                        _LOGGER.error("Failed to parse token response as JSON: %s", e)
+                        _LOGGER.debug("Response text was: %s", text)
+                        return None
+                    
                     token = data.get('loginToken')
                     if token:
                         _LOGGER.debug("Successfully retrieved login token")
@@ -146,7 +157,7 @@ class VerizonRouterAPI:
                 "Origin": self.router_url,
                 "Referer": f"{self.router_url}/",
                 "Content-Type": "application/x-www-form-urlencoded",
-                "User-Agent": "Mozilla/5.0"
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             }
             
             async with self._session.post(
@@ -163,23 +174,27 @@ class VerizonRouterAPI:
                 if response.status == 302:
                     _LOGGER.debug("Got 302 redirect (expected)")
                     
-                    cookies = self._session.cookie_jar.filter_cookies(self.router_url)
-                    _LOGGER.debug("Cookies in jar: %s", len(cookies))
-                    
-                    for cookie in cookies.values():
-                        _LOGGER.debug("Cookie: %s = %s", cookie.key, cookie.value[:20] if cookie.value else "empty")
-                        if cookie.key == 'sysauth' and cookie.value:
-                            _LOGGER.info("Login successful - got sysauth cookie")
-                            return True
-                    
-                    # Try extracting from Set-Cookie header
+                    # Try Set-Cookie header first (matches PyScript approach)
+                    sysauth_cookie = None
                     if 'Set-Cookie' in response.headers:
                         set_cookie = response.headers.get('Set-Cookie', '')
-                        _LOGGER.debug("Set-Cookie header present: %s...", set_cookie[:50])
+                        _LOGGER.debug("Set-Cookie header: %s...", set_cookie[:100])
                         if 'sysauth=' in set_cookie:
                             match = re.search(r'sysauth=([^;]+)', set_cookie)
                             if match and match.group(1):
-                                _LOGGER.info("Login successful - found sysauth in header")
+                                sysauth_cookie = match.group(1)
+                                _LOGGER.info("Login successful - found sysauth in Set-Cookie header")
+                                return True
+                    
+                    # Fallback: check cookie jar
+                    if not sysauth_cookie:
+                        cookies = self._session.cookie_jar.filter_cookies(self.router_url)
+                        _LOGGER.debug("Cookies in jar: %s", len(cookies))
+                        
+                        for cookie in cookies.values():
+                            _LOGGER.debug("Cookie: %s = %s", cookie.key, cookie.value[:20] if cookie.value else "empty")
+                            if cookie.key == 'sysauth' and cookie.value:
+                                _LOGGER.info("Login successful - got sysauth from cookie jar")
                                 return True
                     
                     _LOGGER.error("Login failed - no sysauth cookie found")
