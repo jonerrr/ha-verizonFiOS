@@ -1,5 +1,4 @@
 {
   "name": "Verizon FiOS Router",
-  "render_readme": true,
-  "domains": ["sensor"]
+  "render_readme": true
 }
