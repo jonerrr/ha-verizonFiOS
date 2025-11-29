@@ -1,12 +1,12 @@
 {
   "domain": "verizon_fios",
   "name": "Verizon FiOS Router",
-  "documentation": "https://github.com/skircr115/ha-verizonFiOS",
-  "issue_tracker": "https://github.com/skircr115/ha-verizonFiOS/issues",
   "codeowners": ["@skircr115"],
   "config_flow": true,
   "dependencies": [],
+  "documentation": "https://github.com/skircr115/ha-verizonFiOS",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/skircr115/ha-verizonFiOS/issues",
   "requirements": [],
-  "version": "1.0.5",
-  "iot_class": "local_polling"
+  "version": "1.0.5"
 }
