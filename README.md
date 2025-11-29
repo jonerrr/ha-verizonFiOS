@@ -107,7 +107,7 @@ sensor.verizon_fios_router_device_types:
 ## Installation
 
 ### HACS (Recommended)
-
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?repository=https%3A%2F%2Fgithub.com%2Fskircr115%2Fha-verizonFiOS&owner=skircr115&category=Integration)
 1. Open HACS in Home Assistant
 2. Go to "Integrations"
 3. Click the 3 dots in the top right
