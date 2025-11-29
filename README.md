@@ -14,9 +14,9 @@ A comprehensive Home Assistant integration for Verizon FiOS CR1000A and CE1000A 
 This integration provides extensive monitoring of your Verizon FiOS network:
 
 **Sensor Count:**
-- **Router only:** ~70 sensors
-- **Router + 1 extender:** ~115 sensors ✅
-- **Router + 2 extenders:** ~160 sensors
+- **Router only:** ~71 sensors
+- **Router + 1 extender:** ~117 sensors ✅
+- **Router + 2 extenders:** ~163 sensors
 
 **Coverage:**
 
@@ -107,7 +107,7 @@ sensor.verizon_fios_router_device_types:
 ## Installation
 
 ### HACS (Recommended)
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?repository=https%3A%2F%2Fgithub.com%2Fskircr115%2Fha-verizonFiOS&owner=skircr115&category=Integration)
+
 1. Open HACS in Home Assistant
 2. Go to "Integrations"
 3. Click the 3 dots in the top right
@@ -160,21 +160,36 @@ entities:
     name: Uptime
 ```
 
+#### WiFi Network Load
+```yaml
+type: glance
+title: WiFi Networks
+entities:
+  - entity: sensor.verizon_fios_router_devices_2g
+    name: 2.4G Main
+  - entity: sensor.verizon_fios_router_devices_5g
+    name: 5G Main
+  - entity: sensor.verizon_fios_router_devices_6g
+    name: 6G Main
+  - entity: sensor.verizon_fios_router_devices_wifi_total
+    name: WiFi Total
+```
+
 #### Network Quality
 ```yaml
 type: entities
 title: Network Quality
 entities:
   - entity: sensor.verizon_fios_router_2g_avg_signal
-    name: 2.4GHz Signal
+    name: 2.4G Signal (Avg)
   - entity: sensor.verizon_fios_router_5g_avg_signal
-    name: 5GHz Signal
+    name: 5G Signal (Avg)
   - entity: sensor.verizon_fios_router_6g_avg_signal
-    name: 6GHz Signal
+    name: 6G Signal (Avg)
   - entity: sensor.verizon_fios_router_2g_total_retries
-    name: 2.4GHz Retries
+    name: 2.4G Retries
   - entity: sensor.verizon_fios_router_5g_total_retries
-    name: 5GHz Retries
+    name: 5G Retries
 ```
 
 #### Device Breakdown (Using Attributes)
@@ -343,34 +358,52 @@ Developed through reverse-engineering of Verizon's proprietary router authentica
 
 ## Changelog
 
-### v1.0.5 (2024-11-28) - Current Release
+### v1.0.7 (2025-11-29) - Current Release
+- 🎨 Improved sensor naming consistency
+- ✅ Time sensors now show units: "Uptime (hours)", "Uptime (days)"
+- ✅ Quality metrics use clearer format: "2G Signal (Avg)" instead of "2G Avg Signal"
+- ✅ Device counts simplified: "2.4G Main Devices" instead of "2.4G Main SSID Devices"
+- ✅ Aggregate sensors consistent: "WiFi All Devices" instead of "Total WiFi Devices"
+- ✅ WiFi standards properly formatted: "WiFi 4 Devices" instead of "Devices: Wifi 4"
+- ℹ️ No breaking changes - entity IDs unchanged, only friendly names updated
+
+### v1.0.6 (2025-11-29)
+- ✨ Added missing main SSID device sensors (2.4G, 5G, 6G)
+- ✨ Added WiFi total rollup sensor (all WiFi devices, excludes ethernet)
+- 🔧 Fixed aggregate sensor calculations (5G and 6G now include backhaul)
+- ⚠️ Breaking: Renamed aggregate sensors for clarity
+  - `devices_2g` → `devices_2g_total`
+  - `devices_5g` → `devices_5g_total`
+  - `devices_6g` → `devices_6g_total`
+
+### v1.0.5 (2025-11-28)
 - 🔧 Fixed unit of measurement for data_rate sensors (Mbps → Mbit/s)
 - ✅ Resolved Home Assistant unit validation warnings
 - ✅ All sensors now comply with HA standards
 
-### v1.0.4 (2024-11-28)
+### v1.0.4 (2025-11-28)
 - 🔧 Fixed numeric value parsing for link_rate and signal sensors
 - ✅ Strip unit suffixes (Mbps, dBm) from router responses
 - ✅ Proper int/float conversion for device_class compatibility
 
-### v1.0.3 (2024-11-28)
+### v1.0.3 (2025-11-28)
 - 🔧 Matched authentication flow to working PyScript version
 - ✅ Complete User-Agent header
 - ✅ Cookie extraction order (Set-Cookie header first)
 - ✅ Improved login reliability
 
-### v1.0.2 (2024-11-28)
+### v1.0.2 (2025-11-28)
 - 🔧 Fixed JSON parsing for text/javascript content-type
 - ✅ Manual JSON parsing instead of response.json()
 - ✅ Handles router's non-standard content-type
 
-### v1.0.1 (2024-11-28)
+### v1.0.1 (2025-11-28)
 - 🔧 Enhanced debugging and error logging
 - ✅ Comprehensive debug output at each authentication step
 - ✅ Better timeout handling
 - ✅ Improved exception handling
 
-### v1.0.0 (2024-11-28) - Initial Release
+### v1.0.0 (2025-11-28) - Initial Release
 - 🎉 Initial release
 - ✅ Support for CR1000A and CE1000A routers
 - ✅ 115+ sensors covering all router metrics (router + 1 extender)

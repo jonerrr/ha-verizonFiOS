@@ -147,7 +147,7 @@ def _process_node_metrics(sensors: dict, node: dict, prefix: str, device_key: st
     # Uptime
     uptime_seconds = int(node.get('uptime', 0))
     sensors[f'{prefix}_uptime_hours'] = {
-        "name": "Uptime",
+        "name": "Uptime (hours)",
         "value": uptime_seconds // 3600,
         "unit": "h",
         "device_class": "duration",
@@ -156,7 +156,7 @@ def _process_node_metrics(sensors: dict, node: dict, prefix: str, device_key: st
     }
     
     sensors[f'{prefix}_uptime_days'] = {
-        "name": "Uptime Days",
+        "name": "Uptime (days)",
         "value": round(uptime_seconds / 86400, 1),
         "unit": "d",
         "device_class": "duration",
@@ -270,7 +270,7 @@ def _process_node_metrics(sensors: dict, node: dict, prefix: str, device_key: st
     # Firmware
     if node.get('sw_ver'):
         sensors[f'{prefix}_firmware'] = {
-            "name": "Firmware",
+            "name": "Firmware Version",
             "value": node['sw_ver'],
             "unit": None,
             "device_class": None,
@@ -589,7 +589,7 @@ def _process_station_info(sensors: dict, stations: list, nodes: list) -> None:
         if metrics['signals']:
             avg_signal = sum(metrics['signals']) / len(metrics['signals'])
             sensors[f'router_{band_name}_avg_signal'] = {
-                "name": f"{band_name.upper()} Avg Signal",
+                "name": f"{band_name.upper()} Signal (Avg)",
                 "value": round(avg_signal, 1),
                 "unit": "dBm",
                 "device_class": "signal_strength",
@@ -598,7 +598,7 @@ def _process_station_info(sensors: dict, stations: list, nodes: list) -> None:
             }
             
             sensors[f'router_{band_name}_min_signal'] = {
-                "name": f"{band_name.upper()} Min Signal",
+                "name": f"{band_name.upper()} Signal (Min)",
                 "value": min(metrics['signals']),
                 "unit": "dBm",
                 "device_class": "signal_strength",
@@ -607,7 +607,7 @@ def _process_station_info(sensors: dict, stations: list, nodes: list) -> None:
             }
             
             sensors[f'router_{band_name}_max_signal'] = {
-                "name": f"{band_name.upper()} Max Signal",
+                "name": f"{band_name.upper()} Signal (Max)",
                 "value": max(metrics['signals']),
                 "unit": "dBm",
                 "device_class": "signal_strength",
@@ -618,7 +618,7 @@ def _process_station_info(sensors: dict, stations: list, nodes: list) -> None:
         if metrics['snr']:
             avg_snr = sum(metrics['snr']) / len(metrics['snr'])
             sensors[f'router_{band_name}_avg_snr'] = {
-                "name": f"{band_name.upper()} Avg SNR",
+                "name": f"{band_name.upper()} SNR (Avg)",
                 "value": round(avg_snr, 1),
                 "unit": "dB",
                 "device_class": None,
@@ -628,7 +628,7 @@ def _process_station_info(sensors: dict, stations: list, nodes: list) -> None:
         
         if metrics['retries']:
             sensors[f'router_{band_name}_total_retries'] = {
-                "name": f"{band_name.upper()} Total Retries",
+                "name": f"{band_name.upper()} Retries",
                 "value": sum(metrics['retries']),
                 "unit": "count",
                 "device_class": None,
@@ -638,7 +638,7 @@ def _process_station_info(sensors: dict, stations: list, nodes: list) -> None:
         
         if metrics['errors']:
             sensors[f'router_{band_name}_total_errors'] = {
-                "name": f"{band_name.upper()} Total Errors",
+                "name": f"{band_name.upper()} Errors",
                 "value": sum(metrics['errors']),
                 "unit": "count",
                 "device_class": None,
@@ -649,7 +649,7 @@ def _process_station_info(sensors: dict, stations: list, nodes: list) -> None:
         if metrics['rates']:
             avg_rate = sum(metrics['rates']) / len(metrics['rates'])
             sensors[f'router_{band_name}_avg_link_rate'] = {
-                "name": f"{band_name.upper()} Avg Link Rate",
+                "name": f"{band_name.upper()} Link Rate (Avg)",
                 "value": round(avg_rate, 0),
                 "unit": "Mbit/s",
                 "device_class": "data_rate",
@@ -659,8 +659,13 @@ def _process_station_info(sensors: dict, stations: list, nodes: list) -> None:
     
     # WiFi standard sensors - under router
     for standard, count in wifi_standards.items():
+        # Convert wifi_4 to "WiFi 4", wifi_6e to "WiFi 6E"
+        display_name = standard.replace('_', ' ').title().replace('Wifi', 'WiFi')
+        if standard == 'wifi_6e':
+            display_name = 'WiFi 6E'
+        
         sensors[f'router_devices_{standard}'] = {
-            "name": f"Devices: {standard.replace('_', ' ').title()}",
+            "name": f"{display_name} Devices",
             "value": count,
             "unit": "devices",
             "device_class": None,
@@ -693,9 +698,9 @@ def _create_band_sensors(sensors: dict, bands: dict, prefix: str, device_key: st
             "device_key": device_key
         }
     
-    # Aggregate sensors
-    sensors[f'{prefix}_devices_2g'] = {
-        "name": "2.4G Total Devices",
+    # Aggregate sensors for each band
+    sensors[f'{prefix}_devices_2g_total'] = {
+        "name": "2.4G All Devices",
         "value": bands['2g'] + bands['2g_iot'] + bands['2g_guest'],
         "unit": "devices",
         "device_class": None,
@@ -703,21 +708,36 @@ def _create_band_sensors(sensors: dict, bands: dict, prefix: str, device_key: st
         "device_key": device_key
     }
     
-    sensors[f'{prefix}_devices_5g'] = {
-        "name": "5G Total Devices",
-        "value": bands['5g'] + bands['5g_iptv'],
+    sensors[f'{prefix}_devices_5g_total'] = {
+        "name": "5G All Devices",
+        "value": bands['5g'] + bands['5g_iptv'] + bands['5g_backhaul'],
         "unit": "devices",
         "device_class": None,
         "icon": "mdi:wifi",
         "device_key": device_key
     }
     
-    sensors[f'{prefix}_devices_6g'] = {
-        "name": "6G Total Devices",
-        "value": bands['6g'],
+    sensors[f'{prefix}_devices_6g_total'] = {
+        "name": "6G All Devices",
+        "value": bands['6g'] + bands['6g_backhaul'],
         "unit": "devices",
         "device_class": None,
         "icon": "mdi:wifi-star",
+        "device_key": device_key
+    }
+    
+    # Total WiFi devices (excludes ethernet)
+    total_wifi = (
+        bands['2g'] + bands['2g_iot'] + bands['2g_guest'] +
+        bands['5g'] + bands['5g_iptv'] + bands['5g_backhaul'] +
+        bands['6g'] + bands['6g_backhaul']
+    )
+    sensors[f'{prefix}_devices_wifi_total'] = {
+        "name": "WiFi All Devices",
+        "value": total_wifi,
+        "unit": "devices",
+        "device_class": None,
+        "icon": "mdi:wifi-check",
         "device_key": device_key
     }
 
