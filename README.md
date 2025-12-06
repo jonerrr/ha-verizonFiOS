@@ -7,6 +7,44 @@
 
 A comprehensive Home Assistant integration for Verizon FiOS CR1000A and CE1000A routers.
 
+## Installation
+
+### HACS (Recommended)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?repository=https%3A%2F%2Fgithub.com%2Fskircr115%2Fha-verizonFiOS&owner=skircr115&category=Integration)
+
+1. Open HACS in Home Assistant
+2. Go to "Integrations"
+3. Click the 3 dots in the top right
+4. Select "Custom repositories"
+5. Add this repository URL: `https://github.com/skircr115/ha-verizonFiOS`
+6. Category: Integration
+7. Click "Install"
+8. Restart Home Assistant
+
+### Manual Installation
+
+1. Copy the `custom_components/verizon_fios` directory to your `config/custom_components` directory
+2. Restart Home Assistant
+
+## Configuration
+
+### Via UI (Recommended)
+
+1. Go to **Settings** → **Devices & Services**
+2. Click **+ Add Integration**
+3. Search for "Verizon FiOS Router"
+4. Enter your router details:
+   - **Router URL**: `https://192.168.1.1` (default)
+   - **Username**: `admin` (default)
+   - **Password**: Your router admin password
+5. Click **Submit**
+
+### Supported Routers
+
+- ✅ Verizon CR1000A (tested)
+- ✅ Verizon CE1000A (mesh extender, tested)
+- 🔶 Other Verizon FiOS routers (likely compatible)
+
 ## Features
 
 ### 🎯 **100+ Sensors!**
@@ -103,43 +141,6 @@ sensor.verizon_fios_router_device_types:
   {{ type }}: {{ count }}
 {% endfor %}
 ```
-
-## Installation
-
-### HACS (Recommended)
-
-1. Open HACS in Home Assistant
-2. Go to "Integrations"
-3. Click the 3 dots in the top right
-4. Select "Custom repositories"
-5. Add this repository URL: `https://github.com/skircr115/ha-verizonFiOS`
-6. Category: Integration
-7. Click "Install"
-8. Restart Home Assistant
-
-### Manual Installation
-
-1. Copy the `custom_components/verizon_fios` directory to your `config/custom_components` directory
-2. Restart Home Assistant
-
-## Configuration
-
-### Via UI (Recommended)
-
-1. Go to **Settings** → **Devices & Services**
-2. Click **+ Add Integration**
-3. Search for "Verizon FiOS Router"
-4. Enter your router details:
-   - **Router URL**: `https://192.168.1.1` (default)
-   - **Username**: `admin` (default)
-   - **Password**: Your router admin password
-5. Click **Submit**
-
-### Supported Routers
-
-- ✅ Verizon CR1000A (tested)
-- ✅ Verizon CE1000A (mesh extender, tested)
-- 🔶 Other Verizon FiOS routers (likely compatible)
 
 ## Usage
 
