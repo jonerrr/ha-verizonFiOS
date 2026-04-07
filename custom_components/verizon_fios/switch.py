@@ -7,6 +7,7 @@ from typing import Any
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -17,6 +18,9 @@ from .coordinator import VerizonRouterCoordinator
 
 def _is_device_blocked(device: dict[str, Any]) -> bool:
     """Infer whether a device is blocked from known-device payload."""
+    if "internet_blocked" in device:
+        return bool(device["internet_blocked"])
+
     truthy = {"1", "true", "blocked", "deny", "denied", "off"}
     for key in (
         "blocked",
@@ -88,10 +92,11 @@ async def async_setup_entry(
 
 
 class VerizonDeviceBlockSwitch(CoordinatorEntity, SwitchEntity):
-    """Switch entity that blocks/unblocks internet access for one device."""
+    """Switch entity that controls internet access for one device."""
 
     _attr_has_entity_name = True
-    _attr_icon = "mdi:lan-disconnect"
+    _attr_name = "Internet Access"
+    _attr_icon = "mdi:lan-connect"
 
     def __init__(
         self,
@@ -104,9 +109,9 @@ class VerizonDeviceBlockSwitch(CoordinatorEntity, SwitchEntity):
         super().__init__(coordinator)
         self._entry = entry
         self._mac = mac.lower()
-        self._attr_name = f"{name} Internet Block"
+        self._device_name = name
         stable = self._mac.replace(":", "")
-        self._attr_unique_id = f"verizon_fios_{entry.entry_id}_block_{stable}"
+        self._attr_unique_id = f"verizon_fios_{entry.entry_id}_internet_{stable}"
 
     @property
     def available(self) -> bool:
@@ -123,26 +128,53 @@ class VerizonDeviceBlockSwitch(CoordinatorEntity, SwitchEntity):
 
     @property
     def is_on(self) -> bool | None:
-        """Return True when internet access is blocked."""
+        """Return True when internet is enabled."""
         device = self._lookup_device()
         if not device:
             return None
-        return _is_device_blocked(device)
+        return not _is_device_blocked(device)
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Attach switch to router device."""
+        """Attach switch to a dedicated per-client device."""
+        device = self._lookup_device() or {}
+        stable = self._mac.replace(":", "")
+        model = device.get("device_model") or device.get("device") or "Network Device"
+        manufacturer = device.get("device_manufacturer") or device.get("mac_vendor") or "Unknown"
         return DeviceInfo(
-            identifiers={(DOMAIN, self._entry.entry_id)},
-            name=self.coordinator.data.get("router_name", "Verizon Router"),
-            manufacturer="Verizon",
-            model=self.coordinator.data.get("hardware_model", "CR1000A"),
+            identifiers={(DOMAIN, f"{self._entry.entry_id}_{stable}")},
+            connections={(CONNECTION_NETWORK_MAC, self._mac)},
+            name=self._device_name,
+            manufacturer=manufacturer,
+            model=model,
+            via_device=(DOMAIN, self._entry.entry_id),
+            configuration_url=f"{self._entry.data.get('router_url', 'https://192.168.1.1')}/#/adv/devices/list/settings/{self._mac}",
         )
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Block internet access for this device."""
-        await self.coordinator.async_set_device_blocked(self._mac, True)
+        """Enable internet access for this device."""
+        await self.coordinator.async_set_device_blocked(self._mac, False)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Unblock internet access for this device."""
-        await self.coordinator.async_set_device_blocked(self._mac, False)
+        """Disable internet access for this device."""
+        await self.coordinator.async_set_device_blocked(self._mac, True)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose useful per-device details from router inventory."""
+        device = self._lookup_device() or {}
+        attrs: dict[str, Any] = {
+            "mac": self._mac,
+            "ip": device.get("ip"),
+            "hostname": device.get("hostname"),
+            "name": device.get("name"),
+            "device_type": device.get("device") or device.get("dev_class"),
+            "manufacturer": device.get("device_manufacturer") or device.get("mac_vendor"),
+            "model": device.get("device_model"),
+            "os": device.get("device_os") or device.get("os"),
+            "port": device.get("port"),
+            "activity": device.get("activity"),
+            "time_last_active": device.get("time_last_active"),
+            "time_first_seen": device.get("time_first_seen"),
+        }
+        return {k: v for k, v in attrs.items() if v not in (None, "")}

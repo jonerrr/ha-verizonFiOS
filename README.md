@@ -70,7 +70,7 @@ This integration provides extensive monitoring of your Verizon FiOS network:
 Writable entities are now available for:
 
 - **Router reboot** button (`button.verizon_fios_reboot_router`)
-- **Per-device internet block** switches (`switch.verizon_fios_*_internet_block`)
+- **Per-device internet access** switches (turn **off** to block internet)
 
 Notes:
 - Device block/unblock support uses the same local control flow as the router UI.

@@ -101,6 +101,16 @@ class VerizonRouterAPI:
             _LOGGER.debug("Error parsing %s: %s", variable_name, e)
             return None
 
+    def _parse_cfg_table(self, js_content: str, key_prefix: str) -> dict[int, str]:
+        """Parse addCfg table values for keys like key_prefix_<index>."""
+        pattern = re.compile(
+            rf'addCfg\("{re.escape(key_prefix)}_(\d+)",\s*"[^"]*",\s*"([^"]*)"\);'
+        )
+        result: dict[int, str] = {}
+        for match in pattern.finditer(js_content):
+            result[int(match.group(1))] = match.group(2).strip().lower()
+        return result
+
     async def _get_login_token(self) -> str | None:
         """Get login token from router."""
         try:
@@ -329,8 +339,25 @@ class VerizonRouterAPI:
             known_devices = self._parse_js_value(
                 known_devices_content, "known_device_list"
             )
+
+        blocked_macs: set[str] = set()
+        if known_devices_content:
+            block_mac = self._parse_cfg_table(known_devices_content, "block_mac")
+            block_enable = self._parse_cfg_table(known_devices_content, "block_enable")
+            for idx, mac in block_mac.items():
+                if mac and block_enable.get(idx, "0") == "1":
+                    blocked_macs.add(mac.lower())
+
         if known_devices:
+            if blocked_macs and isinstance(known_devices, dict):
+                devices = known_devices.get("known_devices", [])
+                if isinstance(devices, list):
+                    for device in devices:
+                        mac = str(device.get("mac", "")).lower()
+                        device["internet_blocked"] = mac in blocked_macs
             data['known_devices'] = known_devices
+        if blocked_macs:
+            data["blocked_macs"] = blocked_macs
         
         # Parse station info
         station_info = self._parse_js_value(basic_content, "dump_toplogy_station_info")
@@ -374,6 +401,26 @@ class VerizonRouterAPI:
 
         return session, token
 
+    async def _get_form_token(
+        self, session: aiohttp.ClientSession, fallback_token: str
+    ) -> str:
+        """Get apply token from cgi_basic.js, fallback to login token."""
+        headers = {"Referer": f"{self.router_url}/"}
+        try:
+            async with session.get(
+                f"{self.router_url}/cgi/cgi_basic.js",
+                headers=headers,
+                ssl=self._ssl_context,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                if response.status != 200:
+                    return fallback_token
+                basic_content = await response.text()
+                token = self._parse_js_value(basic_content, "session:token")
+                return token if token else fallback_token
+        except Exception:
+            return fallback_token
+
     async def _post_form(
         self,
         session: aiohttp.ClientSession,
@@ -398,62 +445,92 @@ class VerizonRouterAPI:
 
     async def reboot_router(self) -> None:
         """Trigger router reboot."""
-        session, token = await self._create_authenticated_session()
+        session, login_token = await self._create_authenticated_session()
         try:
-            # The UI uses a generic apply endpoint; command names vary by model/firmware.
-            candidates = (
-                "ui_system_reboot",
-                "ui_reboot",
-                "reboot",
+            token = await self._get_form_token(session, login_token)
+            status, _ = await self._post_form(
+                session,
+                "/apply_abstract.cgi",
+                {"token": token, "action": "ui_reboot_reason", "action_params": "1"},
             )
-            for action in candidates:
-                status, _ = await self._post_form(
-                    session,
-                    "/apply_abstract.cgi",
-                    {"token": token, "action": action},
-                )
-                if status == 200:
-                    return
-            raise Exception("Router rejected reboot request")
+            if status != 200:
+                raise Exception("Router rejected reboot reason pre-check")
+
+            status, _ = await self._post_form(
+                session,
+                "/apply_abstract.cgi",
+                {"token": token, "action": "reboot"},
+            )
+            if status != 200:
+                raise Exception("Router rejected reboot request")
         finally:
             await session.close()
 
     async def set_device_blocked(self, mac: str, blocked: bool) -> None:
         """Block or unblock a device by MAC."""
-        session, token = await self._create_authenticated_session()
+        session, login_token = await self._create_authenticated_session()
         try:
-            # Router UI performs POST analysis.cgi followed by apply_abstract.cgi.
+            normalized_mac = mac.lower()
+            token = await self._get_form_token(session, login_token)
+
+            headers = {"Referer": f"{self.router_url}/#/adv/devices/list"}
+            async with session.get(
+                f"{self.router_url}/cgi/cgi_known_devices.js",
+                headers=headers,
+                ssl=self._ssl_context,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                if response.status != 200:
+                    raise Exception("Failed to fetch known-device config")
+                cfg_content = await response.text()
+
+            block_mac = self._parse_cfg_table(cfg_content, "block_mac")
+            block_enable = self._parse_cfg_table(cfg_content, "block_enable")
+
+            existing_index: int | None = None
+            free_index: int | None = None
+            max_index = max(
+                max(block_mac.keys(), default=-1),
+                max(block_enable.keys(), default=-1),
+            )
+            for idx in range(max_index + 1):
+                slot_mac = block_mac.get(idx, "")
+                slot_enabled = block_enable.get(idx, "0")
+                if slot_mac == normalized_mac:
+                    existing_index = idx
+                    if slot_enabled == "1" and blocked:
+                        return
+                    break
+                if free_index is None and (slot_mac == "" or slot_enabled == "0"):
+                    free_index = idx
+
+            if blocked:
+                index = existing_index if existing_index is not None else free_index
+                if index is None:
+                    raise Exception("No free block list slot available")
+                cmd = "ui_block_dev"
+                cmdparam = f"{normalized_mac},{index}"
+            else:
+                if existing_index is None:
+                    return
+                cmd = "ui_remove_block_dev"
+                cmdparam = str(existing_index)
+
             await self._post_form(
                 session,
                 "/analysis.cgi",
-                {"token": token, "content": f"HA device access toggle {mac} blocked={blocked}"},
+                {
+                    "token": token,
+                    "content": f"HA device access toggle {normalized_mac} blocked={blocked}",
+                },
             )
 
-            action_payloads = [
-                {
-                    "token": token,
-                    "action": "ui_parental_single",
-                    "action_params": json.dumps({"mac": mac, "block": int(blocked)}),
-                },
-                {
-                    "token": token,
-                    "action": "parental_control",
-                    "action_params": json.dumps({"mac": mac, "block": int(blocked)}),
-                },
-                {
-                    "token": token,
-                    "action": "device_access",
-                    "action_params": json.dumps({"mac": mac, "allow": int(not blocked)}),
-                },
-            ]
-
-            for payload in action_payloads:
-                status, _ = await self._post_form(
-                    session, "/apply_abstract.cgi", payload
-                )
-                if status == 200:
-                    return
-
-            raise Exception(f"Router rejected device access update for {mac}")
+            status, _ = await self._post_form(
+                session,
+                "/apply_abstract.cgi",
+                {"token": token, "action": cmd, "action_params": cmdparam},
+            )
+            if status != 200:
+                raise Exception(f"Router rejected device access update for {normalized_mac}")
         finally:
             await session.close()
