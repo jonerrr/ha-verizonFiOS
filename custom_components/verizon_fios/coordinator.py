@@ -47,6 +47,8 @@ class VerizonRouterCoordinator(DataUpdateCoordinator):
         async with self._write_lock:
             try:
                 await self.api.reboot_router()
+                # Router may reject immediate re-auth while reboot/apply settles.
+                await asyncio.sleep(2)
                 await self.async_request_refresh()
             except Exception as err:
                 raise HomeAssistantError(f"Router reboot failed: {err}") from err
@@ -56,6 +58,8 @@ class VerizonRouterCoordinator(DataUpdateCoordinator):
         async with self._write_lock:
             try:
                 await self.api.set_device_blocked(mac, blocked)
+                # Briefly delay refresh to reduce transient post-action auth failures.
+                await asyncio.sleep(1.5)
                 await self.async_request_refresh()
             except Exception as err:
                 raise HomeAssistantError(

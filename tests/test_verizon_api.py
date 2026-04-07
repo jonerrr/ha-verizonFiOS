@@ -129,3 +129,16 @@ async def test_set_device_blocked_uses_ui_remove_block_dev() -> None:
 
     assert posted[1][1]["action"] == "ui_remove_block_dev"
     assert posted[1][1]["action_params"] == "10"
+
+
+@pytest.mark.asyncio
+async def test_fetch_router_data_falls_back_to_last_successful_data() -> None:
+    api = VerizonRouterAPI("https://router", "u", "p")
+    api._last_successful_data = {"router_name": "cached-router"}
+
+    async def fake_authenticate_session(self):
+        raise Exception("Login failed")
+
+    api._authenticate_session = MethodType(fake_authenticate_session, api)
+    data = await api.fetch_router_data()
+    assert data == {"router_name": "cached-router"}

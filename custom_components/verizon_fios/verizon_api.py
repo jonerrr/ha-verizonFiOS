@@ -23,6 +23,7 @@ class VerizonRouterAPI:
         self.password = password
         self._session = None
         self._ssl_context = ssl._create_unverified_context()
+        self._last_successful_data: dict[str, Any] | None = None
 
     def _arc_md5(self, text: str) -> str:
         """Verizon's custom ArcMD5 hash: MD5 -> SHA512."""
@@ -179,7 +180,14 @@ class VerizonRouterAPI:
                 _LOGGER.debug("Login response headers: %s", dict(response.headers))
                 
                 if response.status not in (200, 302):
-                    _LOGGER.error("Login failed - unexpected status: %s", response.status)
+                    if response.status == 403:
+                        _LOGGER.debug(
+                            "Login rejected with 403 (possible transient auth/session lockout)"
+                        )
+                    else:
+                        _LOGGER.error(
+                            "Login failed - unexpected status: %s", response.status
+                        )
                     text = await response.text()
                     _LOGGER.debug("Response body: %s", text[:200])
                     return False
@@ -282,16 +290,22 @@ class VerizonRouterAPI:
             
             # Login (retry to reduce transient 403 failures)
             auth_error: Exception | None = None
-            for attempt in range(3):
+            for attempt in range(6):
                 try:
                     await self._authenticate_session()
                     auth_error = None
                     break
                 except Exception as err:
                     auth_error = err
-                    if attempt < 2:
-                        await asyncio.sleep(0.6 * (attempt + 1))
+                    if attempt < 5:
+                        await asyncio.sleep(min(5.0, 0.6 * (2**attempt)))
             if auth_error:
+                if self._last_successful_data is not None:
+                    _LOGGER.warning(
+                        "Auth failed during refresh (%s); using last successful router data",
+                        auth_error,
+                    )
+                    return self._last_successful_data
                 raise auth_error
             
             # Fetch data files
@@ -331,9 +345,11 @@ class VerizonRouterAPI:
             except:
                 pass
 
-            return await self._parse_data(
+            parsed = await self._parse_data(
                 basic_content, owl_content, known_devices_content
             )
+            self._last_successful_data = parsed
+            return parsed
 
     async def _parse_data(
         self,
