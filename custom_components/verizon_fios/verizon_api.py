@@ -41,6 +41,21 @@ class VerizonRouterAPI:
         """Hash username using ArcMD5."""
         return self._arc_md5(username)
 
+    async def _get_login_status(self) -> dict[str, Any] | None:
+        """Get parsed loginStatus payload from router."""
+        try:
+            async with self._session.get(
+                f"{self.router_url}/loginStatus.cgi",
+                ssl=self._ssl_context,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as response:
+                if response.status != 200:
+                    return None
+                text = await response.text()
+                return json.loads(text)
+        except Exception:
+            return None
+
     def _parse_js_value(self, js_content: str, variable_name: str) -> Any:
         """Parse JavaScript variable values from router response."""
         # Pattern for addROD calls
@@ -114,35 +129,15 @@ class VerizonRouterAPI:
     async def _get_login_token(self) -> str | None:
         """Get login token from router."""
         try:
-            async with self._session.get(
-                f"{self.router_url}/loginStatus.cgi",
-                ssl=self._ssl_context,
-                timeout=aiohttp.ClientTimeout(total=10)
-            ) as response:
-                _LOGGER.debug("Token request status: %s", response.status)
-                if response.status == 200:
-                    # Router returns text/javascript instead of application/json
-                    # So we need to get text and parse it manually
-                    text = await response.text()
-                    _LOGGER.debug("Token response text: %s", text[:200])
-                    
-                    try:
-                        data = json.loads(text)
-                    except json.JSONDecodeError as e:
-                        _LOGGER.error("Failed to parse token response as JSON: %s", e)
-                        _LOGGER.debug("Response text was: %s", text)
-                        return None
-                    
-                    token = data.get('loginToken')
-                    if token:
-                        _LOGGER.debug("Successfully retrieved login token")
-                    else:
-                        _LOGGER.error("No loginToken in response: %s", data)
-                    return token
-                else:
-                    _LOGGER.error("Bad status getting token: %s", response.status)
-                    text = await response.text()
-                    _LOGGER.debug("Response body: %s", text[:200])
+            data = await self._get_login_status()
+            if data is None:
+                return None
+            token = data.get("loginToken")
+            if token:
+                _LOGGER.debug("Successfully retrieved login token")
+            else:
+                _LOGGER.error("No loginToken in response: %s", data)
+            return token
         except Exception as e:
             _LOGGER.error("Error getting login token: %s", e)
         return None
@@ -404,20 +399,14 @@ class VerizonRouterAPI:
     async def _get_form_token(
         self, session: aiohttp.ClientSession, fallback_token: str
     ) -> str:
-        """Get apply token from cgi_basic.js, fallback to login token."""
-        headers = {"Referer": f"{self.router_url}/"}
+        """Get apply token from loginStatus.cgi after login."""
         try:
-            async with session.get(
-                f"{self.router_url}/cgi/cgi_basic.js",
-                headers=headers,
-                ssl=self._ssl_context,
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as response:
-                if response.status != 200:
-                    return fallback_token
-                basic_content = await response.text()
-                token = self._parse_js_value(basic_content, "session:token")
-                return token if token else fallback_token
+            self._session = session
+            status = await self._get_login_status()
+            if not status:
+                return fallback_token
+            token = status.get("token")
+            return token if token else fallback_token
         except Exception:
             return fallback_token
 

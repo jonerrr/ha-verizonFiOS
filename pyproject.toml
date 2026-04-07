@@ -1,0 +1,17 @@
+[project]
+name = "ha-verizonfios"
+version = "0.0.0"
+requires-python = ">=3.11"
+dependencies = [
+  "aiohttp>=3.9.0",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0.0",
+  "pytest-asyncio>=0.23.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
