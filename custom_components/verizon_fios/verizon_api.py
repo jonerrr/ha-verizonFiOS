@@ -6,6 +6,7 @@ import logging
 import re
 import ssl
 from typing import Any
+from urllib.parse import urlencode
 
 import aiohttp
 
@@ -21,6 +22,7 @@ class VerizonRouterAPI:
         self.username = username
         self.password = password
         self._session = None
+        self._ssl_context = ssl._create_unverified_context()
 
     def _arc_md5(self, text: str) -> str:
         """Verizon's custom ArcMD5 hash: MD5 -> SHA512."""
@@ -104,7 +106,7 @@ class VerizonRouterAPI:
         try:
             async with self._session.get(
                 f"{self.router_url}/loginStatus.cgi",
-                ssl=ssl._create_unverified_context(),
+                ssl=self._ssl_context,
                 timeout=aiohttp.ClientTimeout(total=10)
             ) as response:
                 _LOGGER.debug("Token request status: %s", response.status)
@@ -164,7 +166,7 @@ class VerizonRouterAPI:
                 f"{self.router_url}/login.cgi",
                 data=login_data,
                 headers=headers,
-                ssl=ssl._create_unverified_context(),
+                ssl=self._ssl_context,
                 allow_redirects=False,
                 timeout=aiohttp.ClientTimeout(total=10)
             ) as response:
@@ -211,7 +213,7 @@ class VerizonRouterAPI:
         """Test if we can connect to the router."""
         _LOGGER.debug("Starting connection test to %s", self.router_url)
         
-        connector = aiohttp.TCPConnector(ssl=ssl._create_unverified_context())
+        connector = aiohttp.TCPConnector(ssl=self._ssl_context)
         cookie_jar = aiohttp.CookieJar(unsafe=True)
         timeout = aiohttp.ClientTimeout(total=30)
         
@@ -250,7 +252,7 @@ class VerizonRouterAPI:
 
     async def fetch_router_data(self) -> dict[str, Any]:
         """Fetch all router data."""
-        connector = aiohttp.TCPConnector(ssl=ssl._create_unverified_context())
+        connector = aiohttp.TCPConnector(ssl=self._ssl_context)
         cookie_jar = aiohttp.CookieJar(unsafe=True)
         
         async with aiohttp.ClientSession(connector=connector, cookie_jar=cookie_jar) as session:
@@ -271,7 +273,7 @@ class VerizonRouterAPI:
             async with session.get(
                 f"{self.router_url}/cgi/cgi_basic.js",
                 headers=headers,
-                ssl=ssl._create_unverified_context()
+                ssl=self._ssl_context
             ) as response:
                 if response.status != 200:
                     raise Exception(f"Failed to fetch cgi_basic.js: {response.status}")
@@ -283,16 +285,34 @@ class VerizonRouterAPI:
                 async with session.get(
                     f"{self.router_url}/cgi/cgi_owl.js",
                     headers=headers,
-                    ssl=ssl._create_unverified_context()
+                    ssl=self._ssl_context
                 ) as response:
                     if response.status == 200:
                         owl_content = await response.text()
             except:
                 pass
-            
-            return await self._parse_data(basic_content, owl_content)
+            known_devices_content = None
+            try:
+                async with session.get(
+                    f"{self.router_url}/cgi/cgi_known_devices.js",
+                    headers=headers,
+                    ssl=self._ssl_context
+                ) as response:
+                    if response.status == 200:
+                        known_devices_content = await response.text()
+            except:
+                pass
 
-    async def _parse_data(self, basic_content: str, owl_content: str | None) -> dict[str, Any]:
+            return await self._parse_data(
+                basic_content, owl_content, known_devices_content
+            )
+
+    async def _parse_data(
+        self,
+        basic_content: str,
+        owl_content: str | None,
+        known_devices_content: str | None = None,
+    ) -> dict[str, Any]:
         """Parse router data into structured format."""
         data = {}
         
@@ -305,6 +325,10 @@ class VerizonRouterAPI:
         known_devices = self._parse_js_value(basic_content, "known_device_list")
         if not known_devices and owl_content:
             known_devices = self._parse_js_value(owl_content, "known_device_list")
+        if not known_devices and known_devices_content:
+            known_devices = self._parse_js_value(
+                known_devices_content, "known_device_list"
+            )
         if known_devices:
             data['known_devices'] = known_devices
         
@@ -324,5 +348,112 @@ class VerizonRouterAPI:
         hardware_model = self._parse_js_value(basic_content, "hardware_model")
         if hardware_model:
             data['hardware_model'] = hardware_model
+
+        form_token = self._parse_js_value(basic_content, "session:token")
+        if not form_token and owl_content:
+            form_token = self._parse_js_value(owl_content, "session:token")
+        if form_token:
+            data["form_token"] = form_token
         
         return data
+
+    async def _create_authenticated_session(self) -> tuple[aiohttp.ClientSession, str]:
+        """Create session and return authenticated session + token."""
+        connector = aiohttp.TCPConnector(ssl=self._ssl_context)
+        cookie_jar = aiohttp.CookieJar(unsafe=True)
+        session = aiohttp.ClientSession(connector=connector, cookie_jar=cookie_jar)
+        self._session = session
+
+        token = await self._get_login_token()
+        if not token:
+            await session.close()
+            raise Exception("Could not get login token")
+        if not await self._login(token):
+            await session.close()
+            raise Exception("Login failed")
+
+        return session, token
+
+    async def _post_form(
+        self,
+        session: aiohttp.ClientSession,
+        path: str,
+        data: dict[str, Any],
+    ) -> tuple[int, str]:
+        """POST x-www-form-urlencoded data and return status/body."""
+        headers = {
+            "Origin": self.router_url,
+            "Referer": f"{self.router_url}/#/adv/devices/list",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": "Mozilla/5.0",
+        }
+        async with session.post(
+            f"{self.router_url}{path}",
+            data=urlencode(data),
+            headers=headers,
+            ssl=self._ssl_context,
+            timeout=aiohttp.ClientTimeout(total=15),
+        ) as response:
+            return response.status, await response.text()
+
+    async def reboot_router(self) -> None:
+        """Trigger router reboot."""
+        session, token = await self._create_authenticated_session()
+        try:
+            # The UI uses a generic apply endpoint; command names vary by model/firmware.
+            candidates = (
+                "ui_system_reboot",
+                "ui_reboot",
+                "reboot",
+            )
+            for action in candidates:
+                status, _ = await self._post_form(
+                    session,
+                    "/apply_abstract.cgi",
+                    {"token": token, "action": action},
+                )
+                if status == 200:
+                    return
+            raise Exception("Router rejected reboot request")
+        finally:
+            await session.close()
+
+    async def set_device_blocked(self, mac: str, blocked: bool) -> None:
+        """Block or unblock a device by MAC."""
+        session, token = await self._create_authenticated_session()
+        try:
+            # Router UI performs POST analysis.cgi followed by apply_abstract.cgi.
+            await self._post_form(
+                session,
+                "/analysis.cgi",
+                {"token": token, "content": f"HA device access toggle {mac} blocked={blocked}"},
+            )
+
+            action_payloads = [
+                {
+                    "token": token,
+                    "action": "ui_parental_single",
+                    "action_params": json.dumps({"mac": mac, "block": int(blocked)}),
+                },
+                {
+                    "token": token,
+                    "action": "parental_control",
+                    "action_params": json.dumps({"mac": mac, "block": int(blocked)}),
+                },
+                {
+                    "token": token,
+                    "action": "device_access",
+                    "action_params": json.dumps({"mac": mac, "allow": int(not blocked)}),
+                },
+            ]
+
+            for payload in action_payloads:
+                status, _ = await self._post_form(
+                    session, "/apply_abstract.cgi", payload
+                )
+                if status == 200:
+                    return
+
+            raise Exception(f"Router rejected device access update for {mac}")
+        finally:
+            await session.close()

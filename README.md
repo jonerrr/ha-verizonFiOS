@@ -65,6 +65,18 @@ This integration provides extensive monitoring of your Verizon FiOS network:
 - **Mesh Network**: Full extender monitoring with all the same metrics
 - **All SSIDs**: Main, Guest, IoT, IPTV, Backhaul networks
 
+### 🕹️ **Phase 1 Controls**
+
+Writable entities are now available for:
+
+- **Router reboot** button (`button.verizon_fios_reboot_router`)
+- **Per-device internet block** switches (`switch.verizon_fios_*_internet_block`)
+
+Notes:
+- Device block/unblock support uses the same local control flow as the router UI.
+- Because Verizon firmware differs by model/version, command support can vary.
+- If a write action fails, enable debug logging and share logs in an issue.
+
 ### 📊 Sensor Categories
 
 #### Core Router Metrics
@@ -301,7 +313,7 @@ The integration fetches data from:
 - ✅ All communication is local (no cloud required)
 - ✅ Passwords are never stored in plain text
 - ✅ Uses HTTPS with the router
-- ✅ Read-only operations (doesn't change router settings)
+- ✅ Local operations only (read + optional local write actions)
 
 ## Troubleshooting
 
