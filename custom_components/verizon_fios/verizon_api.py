@@ -178,41 +178,58 @@ class VerizonRouterAPI:
                 _LOGGER.debug("Login response status: %s", response.status)
                 _LOGGER.debug("Login response headers: %s", dict(response.headers))
                 
-                if response.status == 302:
-                    _LOGGER.debug("Got 302 redirect (expected)")
-                    
-                    # Try Set-Cookie header first (matches PyScript approach)
-                    sysauth_cookie = None
-                    if 'Set-Cookie' in response.headers:
-                        set_cookie = response.headers.get('Set-Cookie', '')
-                        _LOGGER.debug("Set-Cookie header: %s...", set_cookie[:100])
-                        if 'sysauth=' in set_cookie:
-                            match = re.search(r'sysauth=([^;]+)', set_cookie)
-                            if match and match.group(1):
-                                sysauth_cookie = match.group(1)
-                                _LOGGER.info("Login successful - found sysauth in Set-Cookie header")
-                                return True
-                    
-                    # Fallback: check cookie jar
-                    if not sysauth_cookie:
-                        cookies = self._session.cookie_jar.filter_cookies(self.router_url)
-                        _LOGGER.debug("Cookies in jar: %s", len(cookies))
-                        
-                        for cookie in cookies.values():
-                            _LOGGER.debug("Cookie: %s = %s", cookie.key, cookie.value[:20] if cookie.value else "empty")
-                            if cookie.key == 'sysauth' and cookie.value:
-                                _LOGGER.info("Login successful - got sysauth from cookie jar")
-                                return True
-                    
-                    _LOGGER.error("Login failed - no sysauth cookie found")
-                else:
+                if response.status not in (200, 302):
                     _LOGGER.error("Login failed - unexpected status: %s", response.status)
                     text = await response.text()
                     _LOGGER.debug("Response body: %s", text[:200])
+                    return False
+
+                # Try Set-Cookie header first (matches PyScript approach)
+                if "Set-Cookie" in response.headers:
+                    set_cookie = response.headers.get("Set-Cookie", "")
+                    _LOGGER.debug("Set-Cookie header: %s...", set_cookie[:100])
+                    if "sysauth=" in set_cookie:
+                        match = re.search(r"sysauth=([^;]+)", set_cookie)
+                        if match and match.group(1):
+                            _LOGGER.info("Login successful - found sysauth in Set-Cookie header")
+                            return True
+
+                # Fallback: check cookie jar
+                cookies = self._session.cookie_jar.filter_cookies(self.router_url)
+                _LOGGER.debug("Cookies in jar: %s", len(cookies))
+                for cookie in cookies.values():
+                    _LOGGER.debug(
+                        "Cookie: %s = %s",
+                        cookie.key,
+                        cookie.value[:20] if cookie.value else "empty",
+                    )
+                    if cookie.key == "sysauth" and cookie.value:
+                        _LOGGER.info("Login successful - got sysauth from cookie jar")
+                        return True
+
+                # Some firmware returns 200 with no new cookie but session is still authenticated.
+                status = await self._get_login_status()
+                if status and str(status.get("islogin")) == "1":
+                    _LOGGER.info("Login successful - router reports authenticated session")
+                    return True
+
+                _LOGGER.error("Login failed - no authenticated session established")
                     
         except Exception as e:
             _LOGGER.error("Login error: %s", e, exc_info=True)
         return False
+
+    async def _authenticate_session(self) -> tuple[str, str]:
+        """Authenticate and return (login_token, form_token)."""
+        token = await self._get_login_token()
+        if not token:
+            raise Exception("Could not get login token")
+
+        if not await self._login(token):
+            raise Exception("Login failed")
+
+        form_token = await self._get_form_token(self._session, token)
+        return token, form_token
 
     async def test_connection(self) -> bool:
         """Test if we can connect to the router."""
@@ -263,13 +280,19 @@ class VerizonRouterAPI:
         async with aiohttp.ClientSession(connector=connector, cookie_jar=cookie_jar) as session:
             self._session = session
             
-            # Login
-            token = await self._get_login_token()
-            if not token:
-                raise Exception("Could not get login token")
-            
-            if not await self._login(token):
-                raise Exception("Login failed")
+            # Login (retry to reduce transient 403 failures)
+            auth_error: Exception | None = None
+            for attempt in range(3):
+                try:
+                    await self._authenticate_session()
+                    auth_error = None
+                    break
+                except Exception as err:
+                    auth_error = err
+                    if attempt < 2:
+                        await asyncio.sleep(0.6 * (attempt + 1))
+            if auth_error:
+                raise auth_error
             
             # Fetch data files
             headers = {"Referer": f"{self.router_url}/"}
