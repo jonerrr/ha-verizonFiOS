@@ -165,16 +165,27 @@ class VerizonDeviceBlockSwitch(CoordinatorEntity, SwitchEntity):
         """Expose useful per-device details from router inventory."""
         device = self._lookup_device() or {}
         station_info = self.coordinator.data.get("station_info", {})
+        make = (
+            device.get("ui_manufacturer")
+            or device.get("device_manufacturer")
+            or device.get("mac_vendor")
+        )
+        model = (
+            device.get("ui_model")
+            or device.get("device_model")
+            or device.get("device")
+        )
+        operating_system = device.get("ui_os") or device.get("device_os") or device.get("os")
         attrs: dict[str, Any] = {
             "mac": self._mac,
             "ip": device.get("ip"),
             "connection_status": infer_connection_status(device, station_info),
             "hostname": device.get("hostname"),
             "name": device.get("name"),
+            "make": make,
+            "model": model,
+            "operating_system": operating_system,
             "device_type": device.get("device") or device.get("dev_class"),
-            "manufacturer": device.get("device_manufacturer") or device.get("mac_vendor"),
-            "model": device.get("device_model"),
-            "os": device.get("device_os") or device.get("os"),
             "port": device.get("port"),
             "activity": device.get("activity"),
             "time_last_active": device.get("time_last_active"),

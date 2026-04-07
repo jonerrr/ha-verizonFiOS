@@ -36,3 +36,8 @@ def test_connection_status_from_port_5g() -> None:
 def test_connection_status_from_port_5g2() -> None:
     device = {"activity": 1, "port": "wl2"}
     assert infer_connection_status(device, None) == "5 GHz 2"
+
+
+def test_connection_status_handles_empty_activity_without_crashing() -> None:
+    device = {"activity": "", "port": "wl1"}
+    assert infer_connection_status(device, None) == "Offline"
